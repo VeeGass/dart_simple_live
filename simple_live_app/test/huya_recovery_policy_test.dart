@@ -106,13 +106,13 @@ void main() {
       expect(delay, const Duration(seconds: 1));
     });
 
-    test('does not schedule when expiry is unavailable', () {
+    test('uses a four minute fallback when expiry is unavailable', () {
       final delay = HuyaRecoveryPolicy.credentialRefreshDelay(
         now: now,
         expiresAt: null,
       );
 
-      expect(delay, isNull);
+      expect(delay, const Duration(minutes: 4));
     });
   });
 }

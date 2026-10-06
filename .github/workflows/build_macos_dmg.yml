@@ -32,6 +32,16 @@ jobs:
         working-directory: simple_live_app
         run: flutter pub get
 
+      - name: 运行虎牙恢复策略测试
+        working-directory: simple_live_app
+        run: flutter test test/huya_recovery_policy_test.dart
+
+      - name: 运行虎牙播放地址测试
+        working-directory: simple_live_core
+        run: |
+          dart pub get
+          dart test test/huya_play_url_test.dart
+
       - name: 编译 macOS Release 应用
         working-directory: simple_live_app
         run: flutter build macos --release --no-pub
@@ -67,7 +77,12 @@ jobs:
             "$DMG_PATH"
 
           hdiutil verify "$DMG_PATH"
-          shasum -a 256 "$DMG_PATH" | tee "${DMG_PATH}.sha256"
+          DMG_DIR="$(dirname "$DMG_PATH")"
+          DMG_FILENAME="$(basename "$DMG_PATH")"
+          (
+            cd "$DMG_DIR"
+            shasum -a 256 "$DMG_FILENAME" | tee "${DMG_FILENAME}.sha256"
+          )
 
           echo "dmg_path=$DMG_PATH" >> "$GITHUB_OUTPUT"
           echo "checksum_path=${DMG_PATH}.sha256" >> "$GITHUB_OUTPUT"

@@ -123,9 +123,31 @@ class LiveRoomController extends PlayerController with WidgetsBindingObserver {
 
   bool get _openingPlaylist => _playlistOpenOperations > 0;
 
+  /// 以实现类型作为第二重判断，避免某些入口传入的站点标识异常时，
+  /// 虎牙 FLV 错误回调误入通用的 playlist jump/seek 重试逻辑。
+  bool get _isHuyaRoom {
+    if (site.id.toLowerCase() == Constant.kHuya ||
+        site.liveSite is HuyaSite ||
+        detail.value?.data is HuyaUrlDataModel) {
+      return true;
+    }
+
+    // 最后一层只读兜底：播放器回调发生时，已打开的地址比页面入口标识更
+    // 接近真实播放平台。只匹配虎牙域名，避免把其它平台的 FLV 误判为虎牙。
+    return playUrls.any((url) {
+      final uri = Uri.tryParse(url);
+      return uri != null && uri.host.toLowerCase().contains('huya');
+    });
+  }
+
   @override
   void onInit() {
     WidgetsBinding.instance.addObserver(this);
+    Log.d(
+      '直播间诊断版本=huya-flv-v2 '
+      'platform=${site.id} implementation=${site.liveSite.runtimeType} '
+      'huya=$_isHuyaRoom',
+    );
     if (FollowService.instance.followList.isEmpty) {
       FollowService.instance.loadData();
     }
@@ -229,7 +251,7 @@ class LiveRoomController extends PlayerController with WidgetsBindingObserver {
     _huyaCredentialRefreshTimer?.cancel();
     _huyaCredentialRefreshTimer = null;
 
-    if (_controllerClosed || site.id != Constant.kHuya || !liveStatus.value) {
+    if (_controllerClosed || !_isHuyaRoom || !liveStatus.value) {
       return;
     }
 
@@ -240,6 +262,11 @@ class LiveRoomController extends PlayerController with WidgetsBindingObserver {
     if (delay == null || delay <= Duration.zero) {
       return;
     }
+
+    Log.d(
+      '虎牙播放凭证刷新已安排：expiresAt=${expiresAt?.toIso8601String() ?? 'unknown'} '
+      'delay=${delay.inSeconds}s lines=${playUrls.length}',
+    );
 
     final generation = _playbackGeneration;
     _huyaCredentialRefreshTimer = Timer(delay, () {
@@ -263,7 +290,7 @@ class LiveRoomController extends PlayerController with WidgetsBindingObserver {
 
   Future<void> _recoverHuyaPlayback(String reason) async {
     if (_controllerClosed ||
-        site.id != Constant.kHuya ||
+        !_isHuyaRoom ||
         _recoveringHuyaPlayback) {
       return;
     }
@@ -456,7 +483,7 @@ class LiveRoomController extends PlayerController with WidgetsBindingObserver {
 
     if (!buffering ||
         _controllerClosed ||
-        site.id != Constant.kHuya ||
+        !_isHuyaRoom ||
         !liveStatus.value ||
         !_hasStartedCurrentSource ||
         _recoveringHuyaPlayback) {
@@ -689,11 +716,16 @@ class LiveRoomController extends PlayerController with WidgetsBindingObserver {
       detail: detail.value!,
       quality: qualites[currentQuality],
     );
+    Log.d(
+      '播放地址已更新：platform=${site.id} implementation=${site.liveSite.runtimeType} '
+      'huya=$_isHuyaRoom lines=${playUrl.urls.length} '
+      'expiresAt=${playUrl.expiresAt?.toIso8601String() ?? 'unknown'}',
+    );
     if (!_isRecoveryContextCurrent(generation, requestSite, requestRoomId)) {
       return;
     }
     if (playUrl.urls.isEmpty) {
-      if (site.id == Constant.kHuya && liveStatus.value) {
+      if (_isHuyaRoom && liveStatus.value) {
         await _recoverHuyaPlayback('初始播放地址为空');
         return;
       }
@@ -707,9 +739,9 @@ class LiveRoomController extends PlayerController with WidgetsBindingObserver {
     //重置错误次数
     mediaErrorRetryCount = 0;
     try {
-      await initPlaylist(waitForPlayback: site.id == Constant.kHuya);
+      await initPlaylist(waitForPlayback: _isHuyaRoom);
     } catch (e) {
-      if (site.id == Constant.kHuya && liveStatus.value) {
+      if (_isHuyaRoom && liveStatus.value) {
         Log.d('虎牙初始播放失败，进入自动恢复：$e');
         await _recoverHuyaPlayback('初始播放地址不可用');
         return;
@@ -783,7 +815,12 @@ class LiveRoomController extends PlayerController with WidgetsBindingObserver {
   @override
   void mediaEnd() async {
     super.mediaEnd();
-    if (site.id == Constant.kHuya) {
+    Log.d(
+      '播放结束回调：platform=${site.id} implementation=${site.liveSite.runtimeType} '
+      'huya=$_isHuyaRoom opening=$_openingPlaylist '
+      'recovering=$_recoveringHuyaPlayback live=${liveStatus.value}',
+    );
+    if (_isHuyaRoom) {
       if (_controllerClosed ||
           _openingPlaylist ||
           _recoveringHuyaPlayback ||
@@ -821,7 +858,12 @@ class LiveRoomController extends PlayerController with WidgetsBindingObserver {
   @override
   void mediaError(String error) async {
     super.mediaError(error);
-    if (site.id == Constant.kHuya) {
+    Log.d(
+      '播放错误回调：platform=${site.id} implementation=${site.liveSite.runtimeType} '
+      'huya=$_isHuyaRoom opening=$_openingPlaylist '
+      'recovering=$_recoveringHuyaPlayback live=${liveStatus.value} error=$error',
+    );
+    if (_isHuyaRoom) {
       if (_controllerClosed ||
           _openingPlaylist ||
           _recoveringHuyaPlayback ||

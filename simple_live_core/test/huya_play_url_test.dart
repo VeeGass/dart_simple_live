@@ -22,5 +22,17 @@ void main() {
 
       expect(expiresAt, isNull);
     });
+
+    test('parses wsTime without depending on parameter letter case', () {
+      final expiresAt = HuyaSite().getPlayUrlExpiresAt(
+        'https://example.com/live.flv?WSTIME=65f00000&wsSecret=test',
+      );
+
+      expect(expiresAt, isNotNull);
+      expect(
+        expiresAt!.millisecondsSinceEpoch,
+        int.parse('65f00000', radix: 16) * 1000,
+      );
+    });
   });
 }

@@ -1,0 +1,91 @@
+name: 生成 macOS DMG（手动）
+
+run-name: "生成 macOS DMG #${{ github.run_number }}"
+
+on:
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+jobs:
+  build-dmg:
+    name: 编译并打包 DMG
+    runs-on: macos-latest
+    timeout-minutes: 45
+
+    steps:
+      - name: 读取仓库源码
+        uses: actions/checkout@v4
+
+      - name: 安装 Flutter 3.38.3
+        uses: subosito/flutter-action@v2
+        with:
+          flutter-version: "3.38.3"
+          channel: stable
+          cache: true
+
+      - name: 启用 macOS 桌面支持
+        run: flutter config --enable-macos-desktop
+
+      - name: 安装项目依赖
+        working-directory: simple_live_app
+        run: flutter pub get
+
+      - name: 编译 macOS Release 应用
+        working-directory: simple_live_app
+        run: flutter build macos --release --no-pub
+
+      - name: 临时签名并生成 DMG
+        id: package
+        working-directory: simple_live_app
+        shell: bash
+        run: |
+          set -euo pipefail
+
+          APP_PATH="build/macos/Build/Products/Release/Simple Live.app"
+          test -d "$APP_PATH"
+
+          # 没有 Apple 开发者证书时使用 ad-hoc 临时签名，适合个人下载使用。
+          xattr -cr "$APP_PATH"
+          codesign --force --deep --sign - "$APP_PATH"
+          codesign --verify --deep --strict "$APP_PATH"
+
+          APP_VERSION="$(sed -n 's/^version:[[:space:]]*\([^+]*\).*/\1/p' pubspec.yaml)"
+          DMG_ROOT="build/dmg-root"
+          DMG_PATH="build/Simple-Live-macOS-${APP_VERSION}.dmg"
+
+          mkdir -p "$DMG_ROOT"
+          ditto "$APP_PATH" "$DMG_ROOT/Simple Live.app"
+          ln -s /Applications "$DMG_ROOT/Applications"
+
+          hdiutil create \
+            -volname "Simple Live" \
+            -srcfolder "$DMG_ROOT" \
+            -ov \
+            -format UDZO \
+            "$DMG_PATH"
+
+          hdiutil verify "$DMG_PATH"
+          shasum -a 256 "$DMG_PATH" | tee "${DMG_PATH}.sha256"
+
+          echo "dmg_path=$DMG_PATH" >> "$GITHUB_OUTPUT"
+          echo "checksum_path=${DMG_PATH}.sha256" >> "$GITHUB_OUTPUT"
+
+      - name: 上传 DMG 下载包
+        uses: actions/upload-artifact@v4
+        with:
+          name: Simple-Live-macOS-DMG-${{ github.run_number }}
+          path: |
+            simple_live_app/${{ steps.package.outputs.dmg_path }}
+            simple_live_app/${{ steps.package.outputs.checksum_path }}
+          if-no-files-found: error
+          compression-level: 0
+          retention-days: 30
+
+      - name: 显示下载提示
+        shell: bash
+        run: |
+          echo "### ✅ DMG 已生成" >> "$GITHUB_STEP_SUMMARY"
+          echo "请在本次运行页面底部的 Artifacts 区域下载：" >> "$GITHUB_STEP_SUMMARY"
+          echo "**Simple-Live-macOS-DMG-${{ github.run_number }}**" >> "$GITHUB_STEP_SUMMARY"

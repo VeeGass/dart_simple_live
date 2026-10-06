@@ -24,6 +24,12 @@ class HuyaRecoveryPolicy {
   /// 在凭证过期前提前换取新地址。
   static const credentialRefreshLeadTime = Duration(seconds: 30);
 
+  /// 虎牙没有返回可解析的 wsTime 时，按已观测到的五分钟断流规律兜底刷新。
+  ///
+  /// 提前一分钟更新可以避免 FLV 连接被服务端主动重置；即使只有一条线路，
+  /// 也会重新请求这条线路的新凭证，而不是对旧 FLV 执行 seek/jump。
+  static const fallbackCredentialRefreshDelay = Duration(minutes: 4);
+
   /// 根据用户当前清晰度选择刷新后的清晰度。
   ///
   /// 优先按名称匹配，平台调整清晰度列表时再退回原索引附近。
@@ -58,13 +64,16 @@ class HuyaRecoveryPolicy {
     return <T>[...values.skip(start), ...values.take(start)];
   }
 
-  /// 计算凭证主动刷新延迟。过期时间不可用时交给错误恢复流程处理。
+  /// 计算凭证主动刷新延迟。
+  ///
+  /// 过期时间不可用时不能放弃定时刷新，因为部分虎牙 FLV 地址不会暴露
+  /// 可解析的 wsTime，但连接仍会在约五分钟后被服务端关闭。
   static Duration? credentialRefreshDelay({
     required DateTime now,
     required DateTime? expiresAt,
   }) {
     if (expiresAt == null) {
-      return null;
+      return fallbackCredentialRefreshDelay;
     }
 
     final remaining = expiresAt.difference(now);

@@ -228,6 +228,10 @@ class HuyaSite implements LiveSite {
     }
     // 最新UA需要额外验证，此方法暂时弃用
     // var ua = await getHuYaUA();
+    CoreLog.i(
+      'Huya play URLs generated: lines=${ls.length}, '
+      'expiresAt=${expiresAt?.toIso8601String() ?? 'unknown'}',
+    );
     return LivePlayUrl(
       urls: ls,
       headers: {"user-agent": hySdkUserAgent},
@@ -241,7 +245,16 @@ class HuyaSite implements LiveSite {
   /// 仍可依靠播放错误后的按需重连恢复。
   DateTime? getPlayUrlExpiresAt(String url) {
     try {
-      final wsTime = Uri.parse(url).queryParameters['wsTime'];
+      final parameters = Uri.parse(url).queryParameters;
+      String? wsTime = parameters['wsTime'];
+      if (wsTime == null || wsTime.isEmpty) {
+        for (final entry in parameters.entries) {
+          if (entry.key.toLowerCase() == 'wstime') {
+            wsTime = entry.value;
+            break;
+          }
+        }
+      }
       if (wsTime == null || wsTime.isEmpty) {
         return null;
       }
